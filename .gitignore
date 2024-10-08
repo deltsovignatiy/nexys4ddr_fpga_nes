@@ -1,0 +1,11 @@
+
+# Ignore ALL files in project directory
+/nexys4ddr_fpga_nes_xpr
+
+# Ignore ALL files in .Xil directory
+/.Xil
+
+# ignore ALL .log, .jou and .str files
+*.log
+*.jou
+*.str
