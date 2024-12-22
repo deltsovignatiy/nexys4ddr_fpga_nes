@@ -508,10 +508,8 @@ module ppu_RP2C02_sprites
 
     localparam PDW = 8; // PATTERN_DATA_WIDTH
     generate
-        for (genvar f = 0; f < PDW; f = f + 1) begin : pattern_flipper
-
+        for (genvar f = 0; f < PDW; f = f + 1) begin: pattern_flipper
             assign pattern_table_data_flipped_w [PDW-1-f] = pattern_table_data_i[f];
-
         end
     endgenerate
 
@@ -523,7 +521,7 @@ module ppu_RP2C02_sprites
 
     // Непосредственно рендер переднего плана
     generate
-        for (genvar s = 0; s < 8; s = s + 1) begin : sprites
+        for (genvar s = 0; s < 8; s = s + 1) begin: sprites
 
             assign sp_sel_w               [s] = (fetch_counter_r == s) && ppu_render_enabled_i;
 

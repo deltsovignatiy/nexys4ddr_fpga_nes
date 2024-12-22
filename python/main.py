@@ -2,6 +2,7 @@ import time
 import serial, serial.tools.list_ports
 from pynput import keyboard
 import sys
+import os
 
 
 class RomParserNES:
@@ -87,6 +88,38 @@ class RomParserNES:
         print("CPU PRG ROM size = {}".format(rom_size))
         self._hex_output_writer(rom_data, rom_file)
         rom_file.close()
+
+
+class NESMultiGameROM:
+    GAMES_DIRECTORY_NAME = "NESMultiGameROM"
+
+    def __init__(self):
+        my_cwd = os.getcwd()
+        self._dir_path = os.path.join(my_cwd, self.GAMES_DIRECTORY_NAME)
+        self._create()
+
+    def _create(self):
+        with open("NESMultiGameROM.nes", "wb") as output_file:
+            for filename in sorted(os.listdir(self._dir_path)):
+                filepath = os.path.join(self._dir_path, filename)
+                if os.path.isdir(filepath):
+                    continue
+                if filename.find(".nes") == -1:
+                    continue
+                with open(filepath, "rb") as input_file:
+                    data = input_file.read()
+                    flags6 = data[6]
+                    mapper = (flags6 & RomParserNES.FLAGS6_MAPPER_NUMBER_MASK) >> RomParserNES.FLAGS6_MAPPER_NUMBER_POS
+                    mapper_support = RomParserNES.flags6_mapper_map.get(mapper)
+                    if mapper_support is None:
+                        print("Game {} has unsupported mapper!".format(filename))
+                        continue
+                    else:
+                        print("Adding game {}!".format(filename))
+                    data_size = len(data)
+                    void_size = 1024 * 1024 - data_size
+                    output_file.write(data)
+                    output_file.write(bytearray(void_size))
 
 
 class APUMixerLUT:

@@ -21,6 +21,7 @@ module nes_boot_controller
         output wire        sd_disable_o,          // Сигнал выключения питания SD-карты
         output wire        sd_clk_full_speed_o,   // Сигнал активации полноскоростного тактирования контроллера SD-карт
 
+        input  wire [ 7:0] nes_game_index_i,      // Индекс загружаемой с SD-карты игры
         output wire        nes_booting_o,         // Происходит загрузка данных игры с SD-карты в память
         output wire        nes_boot_complete_o,   // Считывание данных игры завершено, NES готов к выполнению кода
 
@@ -41,16 +42,19 @@ module nes_boot_controller
     );
 
 
+    // Сигнатура INES заголовка
+    localparam [31:0] NES_SIGN_REFERENCE    = 32'h4E_45_53_1A;
+
     // Состояния конечного автомата
-    localparam [3:0] WAITING_SD_DDR2_READY = 0,
-                     PREPARE_HEADER_READ   = 1,
-                     READING_HEADER        = 2,
-                     IDLE                  = 3,
-                     PREPARE_DATA_READ     = 4,
-                     READING_DATA          = 5,
-                     CHECK_SD_BLOCK        = 6,
-                     UNEXPECTED_RESULT     = 7,
-                     SD_READ_FINISHED      = 8;
+    localparam [ 3:0] WAITING_SD_DDR2_READY = 0,
+                      PREPARE_HEADER_READ   = 1,
+                      READING_HEADER        = 2,
+                      IDLE                  = 3,
+                      PREPARE_DATA_READ     = 4,
+                      READING_DATA          = 5,
+                      CHECK_SD_BLOCK        = 6,
+                      UNEXPECTED_RESULT     = 7,
+                      SD_READ_FINISHED      = 8;
 
 
     // Сигналы конечного автомата
@@ -80,6 +84,10 @@ module nes_boot_controller
     reg         read_result_is_ok_next_r;
     reg         boot_complete_r;
     wire        boot_complete_next_w;
+    reg         get_game_index_r;
+    reg  [ 7:0] nes_game_index_r;
+    wire [ 7:0] nes_game_index_next_w;
+    wire [ 7:0] nes_game_index_flipped_w;
     wire        nes_booting_w;
 
     wire        header_data_edge_w;
@@ -103,6 +111,14 @@ module nes_boot_controller
     wire        sd_data_byte_received_w;
 
     // Сигналы "парсера" даных игры
+    reg  [ 7:0] nes_sign_0_r;
+    wire [ 7:0] nes_sign_0_next_w;
+    reg  [ 7:0] nes_sign_1_r;
+    wire [ 7:0] nes_sign_1_next_w;
+    reg  [ 7:0] nes_sign_2_r;
+    wire [ 7:0] nes_sign_2_next_w;
+    reg  [ 7:0] nes_sign_3_r;
+    wire [ 7:0] nes_sign_3_next_w;
     reg  [19:0] prg_rom_size_r;
     wire [19:0] prg_rom_size_next_w;
     reg  [18:0] chr_rom_size_r;
@@ -115,24 +131,37 @@ module nes_boot_controller
     wire [ 3:0] bot_mapper_number_next_w;
     reg  [ 3:0] top_mapper_number_r;
     wire [ 3:0] top_mapper_number_next_w;
+    reg         nes_sign_is_good_r;
+    wire        nes_sign_is_good_next_w;
 
+    wire [31:0] nes_sign_received_w;
     wire [ 7:0] mapper_number_w;
     wire [ 5:0] prg_banks_num_w;
     wire [ 5:0] chr_banks_num_w;
     wire        chr_mem_is_rom_w;
     wire        chr_mem_is_ram_w;
+    wire        nes_sign_testing_w;
 
+    wire        is_nes_sign_0_byte_w;
+    wire        is_nes_sign_1_byte_w;
+    wire        is_nes_sign_2_byte_w;
+    wire        is_nes_sign_3_byte_w;
     wire        is_prg_rom_size_byte_w;
     wire        is_chr_rom_size_byte_w;
     wire        is_flags_6_byte_w;
     wire        is_flags_7_byte_w;
     wire        parsing_header_w;
+    wire        get_nes_sign_0_w;
+    wire        get_nes_sign_1_w;
+    wire        get_nes_sign_2_w;
+    wire        get_nes_sign_3_w;
     wire        get_prg_rom_size_w;
     wire        get_chr_rom_size_w;
     wire        get_nametable_layout_w;
     wire        get_alt_nametable_layout_w;
     wire        get_bot_mapper_number_w;
     wire        get_top_mapper_number_w;
+    wire        check_nes_sign_w;
 
 
     // Логика конечного автомата
@@ -189,12 +218,14 @@ module nes_boot_controller
             chr_rom_received_r  <= 1'b0;
             read_finished_r     <= 1'b0;
             boot_complete_r     <= 1'b0;
+            get_game_index_r    <= 1'b1;
         end else begin
             header_received_r   <= header_received_next_w;
             prg_rom_received_r  <= prg_rom_received_next_w;
             chr_rom_received_r  <= chr_rom_received_next_w;
             read_finished_r     <= read_finished_next_w;
             boot_complete_r     <= boot_complete_next_w;
+            get_game_index_r    <= 1'b0;
         end
 
     always @(posedge clk_i)
@@ -203,6 +234,7 @@ module nes_boot_controller
             rom_data_counter_r  <= rom_data_counter_next_r;
             start_block_read_r  <= start_block_read_next_r;
             read_result_is_ok_r <= read_result_is_ok_next_r;
+            nes_game_index_r    <= nes_game_index_next_w;
         end
 
     assign rom_data_counter_ex_w   = {1'b0, rom_data_counter_r}; // Расширение до prg_rom_size_r
@@ -227,12 +259,22 @@ module nes_boot_controller
     assign nes_booting_w           = ~boot_complete_r;
 
     assign boot_data_w             = {rom_data_counter_r, sd_data_byte_w};
-    assign boot_data_valid_w       = reading_data_block_sn_w && sd_data_byte_received_w && ~nes_data_received_w;
+    assign boot_data_valid_w       = reading_data_block_sn_w && sd_data_byte_received_w && ~nes_data_received_w &&
+                                     nes_sign_is_good_r;
+
+    assign nes_game_index_next_w   = (get_game_index_r) ? nes_game_index_flipped_w : nes_game_index_r;
+
+    generate
+        for (genvar f = 0; f < 8; f = f + 1) begin: game_index_flipper
+            assign nes_game_index_flipped_w [7-f] = nes_game_index_i[f];
+        end
+    endgenerate
+
 
     always @(*)
         case (state_next_r)
             PREPARE_HEADER_READ: begin
-                block_addr_next_r        = 32'h0;
+                block_addr_next_r        = {13'h0, nes_game_index_r, 11'h0};
                 rom_data_counter_next_r  = 19'h0;
                 start_block_read_next_r  = 1'b1;
                 read_result_is_ok_next_r = 1'b0;
@@ -265,7 +307,7 @@ module nes_boot_controller
                 block_addr_next_r        = block_addr_r;
                 rom_data_counter_next_r  = rom_data_counter_r;
                 start_block_read_next_r  = 1'b0;
-                read_result_is_ok_next_r = sd_cmd_result_is_ok_w;
+                read_result_is_ok_next_r = sd_cmd_result_is_ok_w && nes_sign_is_good_r;
             end
             default: begin
                 block_addr_next_r        = block_addr_r;
@@ -288,20 +330,30 @@ module nes_boot_controller
 
     always @(posedge clk_i)
         begin
+            nes_sign_0_r           <= nes_sign_0_next_w;
+            nes_sign_1_r           <= nes_sign_1_next_w;
+            nes_sign_2_r           <= nes_sign_2_next_w;
+            nes_sign_3_r           <= nes_sign_3_next_w;
+            nes_sign_is_good_r     <= nes_sign_is_good_next_w;
             hw_nametable_layout_r  <= hw_nametable_layout_next_w;
             alt_nametable_layout_r <= alt_nametable_layout_next_w;
             bot_mapper_number_r    <= bot_mapper_number_next_w;
             top_mapper_number_r    <= top_mapper_number_next_w;
         end
 
-
+    assign nes_sign_received_w         = {nes_sign_0_r, nes_sign_1_r, nes_sign_2_r, nes_sign_3_r};
     assign mapper_number_w             = {top_mapper_number_r, bot_mapper_number_r};
     assign prg_banks_num_w             = prg_rom_size_r[19:14];
     assign chr_banks_num_w             = chr_rom_size_r[18:13];
     assign chr_mem_is_rom_w            = |chr_banks_num_w;
     assign chr_mem_is_ram_w            = ~chr_mem_is_rom_w;
+    assign nes_sign_testing_w          = (nes_sign_received_w == NES_SIGN_REFERENCE);
 
     // INES header format
+    assign is_nes_sign_0_byte_w        = (sd_data_counter_w == 9'd0);
+    assign is_nes_sign_1_byte_w        = (sd_data_counter_w == 9'd1);
+    assign is_nes_sign_2_byte_w        = (sd_data_counter_w == 9'd2);
+    assign is_nes_sign_3_byte_w        = (sd_data_counter_w == 9'd3);
     assign is_prg_rom_size_byte_w      = (sd_data_counter_w == 9'd4);
     assign is_chr_rom_size_byte_w      = (sd_data_counter_w == 9'd5);
     assign is_flags_6_byte_w           = (sd_data_counter_w == 9'd6);
@@ -309,20 +361,30 @@ module nes_boot_controller
 
     assign parsing_header_w            = reading_header_sn_w && sd_data_byte_received_w;
 
+    assign get_nes_sign_0_w            = parsing_header_w && is_nes_sign_0_byte_w;
+    assign get_nes_sign_1_w            = parsing_header_w && is_nes_sign_1_byte_w;
+    assign get_nes_sign_2_w            = parsing_header_w && is_nes_sign_2_byte_w;
+    assign get_nes_sign_3_w            = parsing_header_w && is_nes_sign_3_byte_w;
     assign get_prg_rom_size_w          = parsing_header_w && is_prg_rom_size_byte_w;
     assign get_chr_rom_size_w          = parsing_header_w && is_chr_rom_size_byte_w;
     assign get_nametable_layout_w      = parsing_header_w && is_flags_6_byte_w;
     assign get_alt_nametable_layout_w  = parsing_header_w && is_flags_6_byte_w;
     assign get_bot_mapper_number_w     = parsing_header_w && is_flags_6_byte_w;
     assign get_top_mapper_number_w     = parsing_header_w && is_flags_7_byte_w;
+    assign check_nes_sign_w            = get_prg_rom_size_w;
 
     // INES header format; "prg" and "chr" sizes converted to bytes
-    assign prg_rom_size_next_w         = (get_prg_rom_size_w        ) ? (sd_data_byte_w << 14) : prg_rom_size_r;
-    assign chr_rom_size_next_w         = (get_chr_rom_size_w        ) ? (sd_data_byte_w << 13) : chr_rom_size_r;
-    assign hw_nametable_layout_next_w  = (get_nametable_layout_w    ) ?  sd_data_byte_w[0]     : hw_nametable_layout_r;
-    assign alt_nametable_layout_next_w = (get_alt_nametable_layout_w) ?  sd_data_byte_w[3]     : alt_nametable_layout_r;
-    assign bot_mapper_number_next_w    = (get_bot_mapper_number_w   ) ?  sd_data_byte_w[7:4]   : bot_mapper_number_r;
-    assign top_mapper_number_next_w    = (get_top_mapper_number_w   ) ?  sd_data_byte_w[7:4]   : top_mapper_number_r;
+    assign nes_sign_0_next_w           = (get_nes_sign_0_w          ) ?  sd_data_byte_w              : nes_sign_0_r;
+    assign nes_sign_1_next_w           = (get_nes_sign_1_w          ) ?  sd_data_byte_w              : nes_sign_1_r;
+    assign nes_sign_2_next_w           = (get_nes_sign_2_w          ) ?  sd_data_byte_w              : nes_sign_2_r;
+    assign nes_sign_3_next_w           = (get_nes_sign_3_w          ) ?  sd_data_byte_w              : nes_sign_3_r;
+    assign prg_rom_size_next_w         = (get_prg_rom_size_w        ) ? {sd_data_byte_w[5:0], 14'h0} : prg_rom_size_r;
+    assign chr_rom_size_next_w         = (get_chr_rom_size_w        ) ? {sd_data_byte_w[5:0], 13'h0} : chr_rom_size_r;
+    assign hw_nametable_layout_next_w  = (get_nametable_layout_w    ) ?  sd_data_byte_w[0]           : hw_nametable_layout_r;
+    assign alt_nametable_layout_next_w = (get_alt_nametable_layout_w) ?  sd_data_byte_w[3]           : alt_nametable_layout_r;
+    assign bot_mapper_number_next_w    = (get_bot_mapper_number_w   ) ?  sd_data_byte_w[7:4]         : bot_mapper_number_r;
+    assign top_mapper_number_next_w    = (get_top_mapper_number_w   ) ?  sd_data_byte_w[7:4]         : top_mapper_number_r;
+    assign nes_sign_is_good_next_w     = (check_nes_sign_w          ) ?  nes_sign_testing_w          : nes_sign_is_good_r;
 
 
     // Логика контроллера SD-карт

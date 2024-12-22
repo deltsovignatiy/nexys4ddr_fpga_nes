@@ -10,9 +10,10 @@ module nexys4ddr_fpga_nes_top
     (
         input  wire        sys_100mhz_clk_i,
 
-        input  wire [ 3:0] sw_i,
+        input  wire [15:0] sw_i,
 
         input  wire        cpu_resetn_i,
+        input  wire        btnc_i,
 
         input  wire        ps2_clk_i,
         input  wire        ps2_data_i,
@@ -83,6 +84,7 @@ module nexys4ddr_fpga_nes_top
     // Сигналы логики считывания данных игры с SD-карты
     wire        sd_clk_full_speed_w;
     wire        nes_boot_complete_w;
+    wire [ 7:0] nes_game_index_w;
 
     // Физический уровень интерфейса SPI для работы с SD-картами
     wire        sd_spi_ncs_val_w;
@@ -148,10 +150,11 @@ module nexys4ddr_fpga_nes_top
     wire        state_invalid_w;
 
 
-    assign sys_main_arstn_w   = sw_i[0];
+    assign sys_main_arstn_w   = sw_i[0] && ~btnc_i;
     assign aud_sd_o           = sw_i[1];
     assign devices_swap_sel_w = sw_i[2];
     assign devices_led_sel_w  = sw_i[3];
+    assign nes_game_index_w   = sw_i[15:8];
 
     assign sys_nes_arstn_w    = cpu_resetn_i;
 
@@ -163,7 +166,8 @@ module nexys4ddr_fpga_nes_top
     assign led_o[   5]        = ~sd_ncd_i;
     assign led_o[   6]        = ~sd_disable_o;
     assign led_o[   7]        = nes_boot_complete_w;
-    assign led_o[15:8]        = (devices_led_sel_w) ? device_2_input_w : device_1_input_w;
+    assign led_o[15:8]        = (~sys_main_arstn_w) ? nes_game_index_w :
+                                (devices_led_sel_w) ? device_2_input_w : device_1_input_w;
 
 
     // Буферы с третьим сосоянием для выходов интерфейса SPI
@@ -257,6 +261,7 @@ module nexys4ddr_fpga_nes_top
             .sd_disable_o       (sd_disable_o       ),
             .sd_clk_full_speed_o(sd_clk_full_speed_w),
             .nes_boot_complete_o(nes_boot_complete_w),
+            .nes_game_index_i   (nes_game_index_w   ),
 
             .spi_clk_o          (sd_spi_clk_o       ),
             .spi_ncs_o          (sd_spi_ncs_val_w   ),

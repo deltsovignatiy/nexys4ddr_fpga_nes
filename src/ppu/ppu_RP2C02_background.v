@@ -8,8 +8,8 @@
 
 module ppu_RP2C02_background
     (
-        input  wire        clk_i,                      // Сигнал тактирования
-        input  wire        rst_i,                      // Сигнал сброса
+        input  wire        clk_i,                       // Сигнал тактирования
+        input  wire        rst_i,                       // Сигнал сброса
 
         input  wire [ 8:0] x_pos_i,                     // Горизонтальная координата рендеринга
         input  wire [ 8:0] y_pos_i,                     // Вертикальная координата рендеринга

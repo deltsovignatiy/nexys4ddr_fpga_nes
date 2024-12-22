@@ -50,6 +50,7 @@ module cartridge
         output wire        sd_disable_o,        // Сигнал выключения питания SD-карты
         output wire        sd_clk_full_speed_o, // Сигнал активации полноскоростного тактирования контроллера SD-карт
         output wire        nes_boot_complete_o, // Сигнал завершения считывания данных игры и их готовности к исполнению
+        input  wire [ 7:0] nes_game_index_i,    // Индекс загружаемой с SD-карты игры
 
         output wire        spi_clk_o,           // Сигнал тактирования SPI
         output wire        spi_ncs_o,           // Сигнал выбора ведомого SPI
@@ -540,6 +541,7 @@ module cartridge
             .sd_disable_o            (sd_disable_o            ),
             .sd_clk_full_speed_o     (sd_clk_full_speed_o     ),
 
+            .nes_game_index_i        (nes_game_index_i        ),
             .nes_booting_o           (nes_booting_w           ),
             .nes_boot_complete_o     (nes_boot_complete_o     ),
 
